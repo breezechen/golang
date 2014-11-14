@@ -190,8 +190,6 @@ func stkbucket(typ bucketType, size uintptr, stk []uintptr, alloc bool) *bucket 
 	return b
 }
 
-func sysAlloc(n uintptr, stat *uint64) unsafe.Pointer
-
 func eqslice(x, y []uintptr) bool {
 	if len(x) != len(y) {
 		return false
@@ -246,16 +244,9 @@ func mProf_Malloc(p unsafe.Pointer, size uintptr) {
 	// This reduces potential contention and chances of deadlocks.
 	// Since the object must be alive during call to mProf_Malloc,
 	// it's fine to do this non-atomically.
-	setprofilebucket(p, b)
-}
-
-func setprofilebucket_m() // mheap.c
-
-func setprofilebucket(p unsafe.Pointer, b *bucket) {
-	g := getg()
-	g.m.ptrarg[0] = p
-	g.m.ptrarg[1] = unsafe.Pointer(b)
-	onM(setprofilebucket_m)
+	systemstack(func() {
+		setprofilebucket(p, b)
+	})
 }
 
 // Called when freeing a profiled block.
@@ -519,8 +510,6 @@ func ThreadCreateProfile(p []StackRecord) (n int, ok bool) {
 	return
 }
 
-var allgs []*g // proc.c
-
 // GoroutineProfile returns n, the number of records in the active goroutine stack profile.
 // If len(p) >= n, GoroutineProfile copies the profile into p and returns n, true.
 // If len(p) < n, GoroutineProfile does not change p and returns n, false.
@@ -528,21 +517,23 @@ var allgs []*g // proc.c
 // Most clients should use the runtime/pprof package instead
 // of calling GoroutineProfile directly.
 func GoroutineProfile(p []StackRecord) (n int, ok bool) {
-	sp := getcallersp(unsafe.Pointer(&p))
-	pc := getcallerpc(unsafe.Pointer(&p))
 
 	n = NumGoroutine()
 	if n <= len(p) {
 		gp := getg()
 		semacquire(&worldsema, false)
 		gp.m.gcing = 1
-		onM(stoptheworld)
+		systemstack(stoptheworld)
 
 		n = NumGoroutine()
 		if n <= len(p) {
 			ok = true
 			r := p
-			saveg(pc, sp, gp, &r[0])
+			sp := getcallersp(unsafe.Pointer(&p))
+			pc := getcallerpc(unsafe.Pointer(&p))
+			systemstack(func() {
+				saveg(pc, sp, gp, &r[0])
+			})
 			r = r[1:]
 			for _, gp1 := range allgs {
 				if gp1 == gp || readgstatus(gp1) == _Gdead {
@@ -555,7 +546,7 @@ func GoroutineProfile(p []StackRecord) (n int, ok bool) {
 
 		gp.m.gcing = 0
 		semrelease(&worldsema)
-		onM(starttheworld)
+		systemstack(starttheworld)
 	}
 
 	return n, ok
@@ -573,15 +564,13 @@ func saveg(pc, sp uintptr, gp *g, r *StackRecord) {
 // If all is true, Stack formats stack traces of all other goroutines
 // into buf after the trace for the current goroutine.
 func Stack(buf []byte, all bool) int {
-	sp := getcallersp(unsafe.Pointer(&buf))
-	pc := getcallerpc(unsafe.Pointer(&buf))
 	mp := acquirem()
 	gp := mp.curg
 	if all {
 		semacquire(&worldsema, false)
 		mp.gcing = 1
 		releasem(mp)
-		onM(stoptheworld)
+		systemstack(stoptheworld)
 		if mp != acquirem() {
 			gothrow("Stack: rescheduled")
 		}
@@ -589,20 +578,25 @@ func Stack(buf []byte, all bool) int {
 
 	n := 0
 	if len(buf) > 0 {
-		gp.writebuf = buf[0:0:len(buf)]
-		goroutineheader(gp)
-		traceback(pc, sp, 0, gp)
-		if all {
-			tracebackothers(gp)
-		}
-		n = len(gp.writebuf)
-		gp.writebuf = nil
+		sp := getcallersp(unsafe.Pointer(&buf))
+		pc := getcallerpc(unsafe.Pointer(&buf))
+		systemstack(func() {
+			g0 := getg()
+			g0.writebuf = buf[0:0:len(buf)]
+			goroutineheader(gp)
+			traceback(pc, sp, 0, gp)
+			if all {
+				tracebackothers(gp)
+			}
+			n = len(g0.writebuf)
+			g0.writebuf = nil
+		})
 	}
 
 	if all {
 		mp.gcing = 0
 		semrelease(&worldsema)
-		onM(starttheworld)
+		systemstack(starttheworld)
 	}
 	releasem(mp)
 	return n
@@ -623,7 +617,11 @@ func tracealloc(p unsafe.Pointer, size uintptr, typ *_type) {
 	}
 	if gp.m.curg == nil || gp == gp.m.curg {
 		goroutineheader(gp)
-		traceback(getcallerpc(unsafe.Pointer(&p)), getcallersp(unsafe.Pointer(&p)), 0, gp)
+		pc := getcallerpc(unsafe.Pointer(&p))
+		sp := getcallersp(unsafe.Pointer(&p))
+		systemstack(func() {
+			traceback(pc, sp, 0, gp)
+		})
 	} else {
 		goroutineheader(gp.m.curg)
 		traceback(^uintptr(0), ^uintptr(0), 0, gp.m.curg)
@@ -639,7 +637,11 @@ func tracefree(p unsafe.Pointer, size uintptr) {
 	gp.m.traceback = 2
 	print("tracefree(", p, ", ", hex(size), ")\n")
 	goroutineheader(gp)
-	traceback(getcallerpc(unsafe.Pointer(&p)), getcallersp(unsafe.Pointer(&p)), 0, gp)
+	pc := getcallerpc(unsafe.Pointer(&p))
+	sp := getcallersp(unsafe.Pointer(&p))
+	systemstack(func() {
+		traceback(pc, sp, 0, gp)
+	})
 	print("\n")
 	gp.m.traceback = 0
 	unlock(&tracelock)

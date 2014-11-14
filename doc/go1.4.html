@@ -120,9 +120,9 @@ compile but is easy to fix by adding an explicit dereference.
 <p>
 Go 1.4 can build binaries for ARM processors running the Android operating system.
 It can also build a <code>.so</code> library that can be loaded by an Android application
-using the supporting packages in the <a href="http://code.google.com/p/go.mobile">go.mobile</a> repository.
+using the supporting packages in the <a href="https://golang.org/x/mobile">mobile</a> subrepository.
 A brief description of the plans for this experimental port are available
-<a href="/s/go14android">here</a>.
+<a href="https://golang.org/s/go14android">here</a>.
 </p>
 
 <h3 id="naclarm">NaCl on ARM</h3>
@@ -193,13 +193,12 @@ A consequence is that stacks are no longer segmented, eliminating the "hot split
 When a stack limit is reached, a new, larger stack is allocated, all active frames for
 the goroutine are copied there, and any pointers into the stack are updated.
 Performance can be noticeably better in some cases and is always more predictable.
-Details are available in <a href="/s/contigstacks">the design document</a>.
+Details are available in <a href="https://golang.org/s/contigstacks">the design document</a>.
 </p>
 
 <p>
 The use of contiguous stacks means that stacks can start smaller without triggering performance issues,
 so the default starting size for a goroutine's stack in 1.4 has been reduced to 2048 bytes from 8192 bytes.
-TODO: It may be bumped to 4096 for the release.
 </p>
 
 <p>
@@ -320,7 +319,7 @@ from 1.5 and onward it will be enforced for any repository.
 
 <p>
 Full details of the mechanism are in
-<a href="http://golang.org/s/go14internal">the design document</a>.
+<a href="https://golang.org/s/go14internal">the design document</a>.
 </p>
 
 <h3 id="canonicalimports">Canonical import paths</h3>
@@ -382,7 +381,25 @@ The new <code>-f</code> flag overrides this check.
 
 <p>
 Further information is in
-<a href="http://golang.org/s/go14customimport">the design document</a>.
+<a href="https://golang.org/s/go14customimport">the design document</a>.
+</p>
+
+<h3 id="subrepo">Import paths for the subrepositories</h3>
+
+<p>
+The Go project subrepositories (<code>code.google.com/p/go.tools</code> and so on)
+are now available under custom import paths replacing <code>code.google.com/p/go.</code> with <code>golang.org/x/</code>,
+as in <code>golang.org/x/tools</code>.
+We will add canonical import comments to the code around June 1, 2015,
+at which point Go 1.4 and later will stop accepting the old <code>code.google.com</code> paths.
+</p>
+
+<p>
+<em>Updating</em>: All code that imports from subrepositories should change
+to use the new <code>golang.org</code> paths.
+Go 1.0 and later can resolve and import the new paths, so updating will not break
+compatibility with older releases.
+Code that has not updated will stop compiling with Go 1.4 around June 1, 2015.
 </p>
 
 <h3 id="gogenerate">The go generate subcommand</h3>
@@ -394,13 +411,13 @@ to automate the running of tools to generate source code before compilation.
 For example, it can be used to run the <a href="/cmd/yacc"><code>yacc</code></a>
 compiler-compiler on a <code>.y</code> file to produce the Go source file implementing the grammar,
 or to automate the generation of <code>String</code> methods for typed constants using the new
-<a href="http://godoc.org/code.google.com/p/go.tools/cmd/stringer">stringer</a>
-tool in the <code>go.tools</code> repository.
+<a href="http://godoc.org/golang.org/x/tools/cmd/stringer">stringer</a>
+tool in the <code>golang.org/x/tools</code> subrepository.
 </p>
 
 <p>
 For more information, see the 
-<a href="http://golang.org/s/go1.4-generate">design document</a>.
+<a href="https://golang.org/s/go1.4-generate">design document</a>.
 </p>
 
 <h3 id="filenames">Change to file name handling</h3>
@@ -480,7 +497,7 @@ rebuild the standard library and commands, to avoid overwriting the installation
 <p>
 In the main Go source repository, the source code for the packages was kept in
 the directory <code>src/pkg</code>, which made sense but differed from
-other repositories, including the Go sub-repositories such as <code>go.tools</code>.
+other repositories, including the Go subrepositories.
 In Go 1.4, the<code> pkg</code> level of the source tree is now gone, so for example
 the <a href="/pkg/fmt/"><code>fmt</code></a> package's source, once kept in
 directory <code>src/pkg/fmt</code>, now lives one level higher in <code>src/fmt</code>.
@@ -586,19 +603,19 @@ The <a href="/pkg/syscall/"><code>syscall</code></a> package is now frozen excep
 for changes needed to maintain the core repository.
 In particular, it will no longer be extended to support new or different system calls
 that are not used by the core.
-The reasons are described at length in <a href="http://golang.org/s/go1.4-syscall">a
+The reasons are described at length in <a href="https://golang.org/s/go1.4-syscall">a
 separate document</a>.
 </p>
 
 <p>
-A new subrepository, <a href="http://code.google.com/p/go.sys">go.sys</a>,
+A new subrepository, <a href="https://golang.org/x/sys">golang.org/x/sys</a>,
 has been created to serve as the location for new developments to support system
 calls on all kernels.
 It has a nicer structure, with three packages that each hold the implementation of
 system calls for one of
-<a href="http://godoc.org/code.google.com/p/go.sys/unix">Unix</a>,
-<a href="http://godoc.org/code.google.com/p/go.sys/windows">Windows</a> and
-<a href="http://godoc.org/code.google.com/p/go.sys/plan9">Plan 9</a>.
+<a href="http://godoc.org/golang.org/x/sys/unix">Unix</a>,
+<a href="http://godoc.org/golang.org/x/sys/windows">Windows</a> and
+<a href="http://godoc.org/golang.org/x/sys/plan9">Plan 9</a>.
 These packages will be curated more generously, accepting all reasonable changes
 that reflect kernel interfaces in those operating systems.
 See the documentation and the article mentioned above for more information.
@@ -608,7 +625,7 @@ See the documentation and the article mentioned above for more information.
 <em>Updating</em>: Existing programs are not affected as the <code>syscall</code>
 package is largely unchanged from the 1.3 release.
 Future development that requires system calls not in the <code>syscall</code> package
-should build on <code>go.sys</code> instead.
+should build on <code>golang.org/x/sys</code> instead.
 </p>
 
 <h3 id="minor_library_changes">Minor changes to the library</h3>

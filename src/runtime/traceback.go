@@ -32,15 +32,16 @@ const usesLR = GOARCH != "amd64" && GOARCH != "amd64p32" && GOARCH != "386"
 
 var (
 	// initialized in tracebackinit
-	deferprocPC uintptr
-	goexitPC    uintptr
-	jmpdeferPC  uintptr
-	mcallPC     uintptr
-	morestackPC uintptr
-	mstartPC    uintptr
-	newprocPC   uintptr
-	rt0_goPC    uintptr
-	sigpanicPC  uintptr
+	deferprocPC          uintptr
+	goexitPC             uintptr
+	jmpdeferPC           uintptr
+	mcallPC              uintptr
+	morestackPC          uintptr
+	mstartPC             uintptr
+	newprocPC            uintptr
+	rt0_goPC             uintptr
+	sigpanicPC           uintptr
+	systemstack_switchPC uintptr
 
 	externalthreadhandlerp uintptr // initialized elsewhere
 )
@@ -59,6 +60,7 @@ func tracebackinit() {
 	newprocPC = funcPC(newproc)
 	rt0_goPC = funcPC(rt0_go)
 	sigpanicPC = funcPC(sigpanic)
+	systemstack_switchPC = funcPC(systemstack_switch)
 }
 
 // Traceback over the deferred function calls.
@@ -101,6 +103,22 @@ func gentraceback(pc0 uintptr, sp0 uintptr, lr0 uintptr, gp *g, skip int, pcbuf 
 		gothrow("gentraceback before goexitPC initialization")
 	}
 	g := getg()
+	if g == gp && g == g.m.curg {
+		// The starting sp has been passed in as a uintptr, and the caller may
+		// have other uintptr-typed stack references as well.
+		// If during one of the calls that got us here or during one of the
+		// callbacks below the stack must be grown, all these uintptr references
+		// to the stack will not be updated, and gentraceback will continue
+		// to inspect the old stack memory, which may no longer be valid.
+		// Even if all the variables were updated correctly, it is not clear that
+		// we want to expose a traceback that begins on one stack and ends
+		// on another stack. That could confuse callers quite a bit.
+		// Instead, we require that gentraceback and any other function that
+		// accepts an sp for the current goroutine (typically obtained by
+		// calling getcallersp) must not run on that goroutine's stack but
+		// instead on the g0 stack.
+		gothrow("gentraceback cannot trace user goroutine on its own stack")
+	}
 	gotraceback := gotraceback(nil)
 	if pc0 == ^uintptr(0) && sp0 == ^uintptr(0) { // Signal to fetch saved values from gp.
 		if gp.syscallsp != 0 {
@@ -319,8 +337,7 @@ func gentraceback(pc0 uintptr, sp0 uintptr, lr0 uintptr, gp *g, skip int, pcbuf 
 					print(hex(argp[i]))
 				}
 				print(")\n")
-				var file string
-				line := funcline(f, tracepc, &file)
+				file, line := funcline(f, tracepc)
 				print("\t", file, ":", line)
 				if frame.pc > f.entry {
 					print(" +", hex(frame.pc-f.entry))
@@ -464,8 +481,7 @@ func printcreatedby(gp *g) {
 		if pc > f.entry {
 			tracepc -= _PCQuantum
 		}
-		var file string
-		line := funcline(f, tracepc, &file)
+		file, line := funcline(f, tracepc)
 		print("\t", file, ":", line)
 		if pc > f.entry {
 			print(" +", hex(pc-f.entry))
@@ -511,7 +527,11 @@ func traceback1(pc uintptr, sp uintptr, lr uintptr, gp *g, flags uint) {
 func callers(skip int, pcbuf *uintptr, m int) int {
 	sp := getcallersp(unsafe.Pointer(&skip))
 	pc := uintptr(getcallerpc(unsafe.Pointer(&skip)))
-	return gentraceback(pc, sp, 0, getg(), skip, pcbuf, m, nil, nil, 0)
+	var n int
+	systemstack(func() {
+		n = gentraceback(pc, sp, 0, getg(), skip, pcbuf, m, nil, nil, 0)
+	})
+	return n
 }
 
 func gcallers(gp *g, skip int, pcbuf *uintptr, m int) int {
