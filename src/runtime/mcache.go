@@ -38,7 +38,12 @@ func freemcache(c *mcache) {
 	systemstack(func() {
 		mCache_ReleaseAll(c)
 		stackcache_clear(c)
-		gcworkbuffree(c.gcworkbuf)
+
+		// NOTE(rsc,rlh): If gcworkbuffree comes back, we need to coordinate
+		// with the stealing of gcworkbufs during garbage collection to avoid
+		// a race where the workbuf is double-freed.
+		// gcworkbuffree(c.gcworkbuf)
+
 		lock(&mheap_.lock)
 		purgecachedstats(c)
 		fixAlloc_Free(&mheap_.cachealloc, unsafe.Pointer(c))

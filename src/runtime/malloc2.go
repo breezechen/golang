@@ -299,8 +299,6 @@ type mcache struct {
 
 	sudogcache *sudog
 
-	gcworkbuf unsafe.Pointer
-
 	// Local allocator stats, flushed during GC.
 	local_nlookup    uintptr                  // number of pointer lookups
 	local_largefree  uintptr                  // bytes freed for large objects (>maxsmallsize)

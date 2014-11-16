@@ -526,6 +526,7 @@ func fillstack(stk stack, b byte) {
 }
 
 // Copies gp's stack to a new stack of a different size.
+// Caller must have changed gp status to Gcopystack.
 func copystack(gp *g, newsize uintptr) {
 	if gp.syscallsp != 0 {
 		gothrow("stack growth not allowed in system call")
@@ -563,20 +564,10 @@ func copystack(gp *g, newsize uintptr) {
 	}
 	memmove(unsafe.Pointer(new.hi-used), unsafe.Pointer(old.hi-used), used)
 
-	oldstatus := readgstatus(gp)
-	oldstatus &^= _Gscan
-	if oldstatus == _Gwaiting || oldstatus == _Grunnable {
-		casgstatus(gp, oldstatus, _Gcopystack) // oldstatus is Gwaiting or Grunnable
-	} else {
-		gothrow("copystack: bad status, not Gwaiting or Grunnable")
-	}
-
 	// Swap out old stack for new one
 	gp.stack = new
 	gp.stackguard0 = new.lo + _StackGuard // NOTE: might clobber a preempt request
 	gp.sched.sp = new.hi - used
-
-	casgstatus(gp, _Gcopystack, oldstatus) // oldstatus is Gwaiting or Grunnable
 
 	// free old stack
 	if stackPoisonCopy != 0 {
@@ -675,6 +666,14 @@ func newstack() {
 		gothrow("runtime: split stack overflow")
 	}
 
+	if gp.sched.ctxt != nil {
+		// morestack wrote sched.ctxt on its way in here,
+		// without a write barrier. Run the write barrier now.
+		// It is not possible to be preempted between then
+		// and now, so it's okay.
+		writebarrierptr_nostore((*uintptr)(unsafe.Pointer(&gp.sched.ctxt)), uintptr(gp.sched.ctxt))
+	}
+
 	if gp.stackguard0 == stackPreempt {
 		if gp == thisg.m.g0 {
 			gothrow("runtime: preempt g0")
@@ -714,13 +713,17 @@ func newstack() {
 		gothrow("stack overflow")
 	}
 
-	// Note that the concurrent GC might be scanning the stack as we try to replace it.
-	// copystack takes care of the appropriate coordination with the stack scanner.
+	oldstatus := readgstatus(gp)
+	oldstatus &^= _Gscan
+	casgstatus(gp, oldstatus, _Gcopystack) // oldstatus is Gwaiting or Grunnable
+
+	// The concurrent GC will not scan the stack while we are doing the copy since
+	// the gp is in a Gcopystack status.
 	copystack(gp, uintptr(newsize))
 	if stackDebug >= 1 {
 		print("stack grow done\n")
 	}
-	casgstatus(gp, _Gwaiting, _Grunning)
+	casgstatus(gp, _Gcopystack, _Grunning)
 	gogo(&gp.sched)
 }
 
@@ -773,17 +776,25 @@ func shrinkstack(gp *g) {
 	if gp.syscallsp != 0 {
 		return
 	}
-
-	/* TODO
-	if _Windows && gp.m != nil && gp.m.libcallsp != 0 {
+	if _Windows != 0 && gp.m != nil && gp.m.libcallsp != 0 {
 		return
 	}
-	*/
 
 	if stackDebug > 0 {
 		print("shrinking stack ", oldsize, "->", newsize, "\n")
 	}
+
+	// This is being done in a Gscan state and was initiated by the GC so no need to move to
+	// the Gcopystate.
+	// The world is stopped, so the goroutine must be Gwaiting or Grunnable,
+	// and what it is is not changing underfoot.
+	oldstatus := readgstatus(gp) &^ _Gscan
+	if oldstatus != _Gwaiting && oldstatus != _Grunnable {
+		gothrow("status is not Gwaiting or Grunnable")
+	}
+	casgstatus(gp, oldstatus, _Gcopystack)
 	copystack(gp, newsize)
+	casgstatus(gp, _Gcopystack, oldstatus)
 }
 
 // Do any delayed stack freeing that was queued up during GC.

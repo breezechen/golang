@@ -14,7 +14,7 @@ func lfstackpush(head *uint64, node *lfnode) {
 	new := lfstackPack(node, node.pushcnt)
 	for {
 		old := atomicload64(head)
-		node.next, _ = lfstackUnpack(old)
+		node.next = old
 		if cas64(head, old, new) {
 			break
 		}
@@ -28,12 +28,8 @@ func lfstackpop(head *uint64) unsafe.Pointer {
 			return nil
 		}
 		node, _ := lfstackUnpack(old)
-		node2 := (*lfnode)(atomicloadp(unsafe.Pointer(&node.next)))
-		new := uint64(0)
-		if node2 != nil {
-			new = lfstackPack(node2, node2.pushcnt)
-		}
-		if cas64(head, old, new) {
+		next := atomicload64(&node.next)
+		if cas64(head, old, next) {
 			return unsafe.Pointer(node)
 		}
 	}
