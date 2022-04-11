@@ -38,6 +38,7 @@ For example, if change 123456 contains the files x.go and y.go,
 "hg diff @123456" is equivalent to"hg diff x.go y.go".
 '''
 
+
 import sys
 
 if __name__ == "__main__":
@@ -47,7 +48,7 @@ if __name__ == "__main__":
 # We require Python 2.6 for the json package.
 if sys.version < '2.6':
 	print >>sys.stderr, "The codereview extension requires Python 2.6 or newer."
-	print >>sys.stderr, "You are running Python " + sys.version
+	(print >>sys.stderr, f"You are running Python {sys.version}")
 	sys.exit(2)
 
 import json
@@ -127,7 +128,7 @@ def Intersect(l1, l2):
 
 def typecheck(s, t):
 	if type(s) != t:
-		raise hg_util.Abort("type check failed: %s has type %s != %s" % (repr(s), type(s), t))
+		raise hg_util.Abort(f"type check failed: {repr(s)} has type {type(s)} != {t}")
 
 # If we have to pass unicode instead of str, ustr does that conversion clearly.
 def ustr(s):
@@ -230,10 +231,10 @@ class CL(object):
 		cl = self
 		s = ""
 		if cl.copied_from:
-			s += "Author: " + cl.copied_from + "\n\n"
+			s += f"Author: {cl.copied_from}" + "\n\n"
 		if cl.private:
-			s += "Private: " + str(self.private) + "\n"
-		s += "Mailed: " + str(self.mailed) + "\n"
+			s += f"Private: {str(self.private)}" + "\n"
+		s += f"Mailed: {str(self.mailed)}" + "\n"
 		s += "Description:\n"
 		s += Indent(cl.desc, "\t")
 		s += "Files:\n"
@@ -247,19 +248,16 @@ class CL(object):
 		s = _change_prolog
 		s += "\n"
 		if cl.copied_from:
-			s += "Author: " + cl.copied_from + "\n"
+			s += f"Author: {cl.copied_from}" + "\n"
 		if cl.url != '':
-			s += 'URL: ' + cl.url + '	# cannot edit\n\n'
+			s += f'URL: {cl.url}' + '	# cannot edit\n\n'
 		if cl.private:
 			s += "Private: True\n"
-		s += "Reviewer: " + JoinComma(cl.reviewer) + "\n"
-		s += "CC: " + JoinComma(cl.cc) + "\n"
+		s += f"Reviewer: {JoinComma(cl.reviewer)}" + "\n"
+		s += f"CC: {JoinComma(cl.cc)}" + "\n"
 		s += "\n"
 		s += "Description:\n"
-		if cl.desc == '':
-			s += "\t<enter description here>\n"
-		else:
-			s += Indent(cl.desc, "\t")
+		s += "\t<enter description here>\n" if cl.desc == '' else Indent(cl.desc, "\t")
 		s += "\n"
 		if cl.local or cl.name == "new":
 			s += "Files:\n"
@@ -271,7 +269,7 @@ class CL(object):
 
 	def PendingText(self, quick=False):
 		cl = self
-		s = cl.name + ":" + "\n"
+		s = f'{cl.name}:' + "\n"
 		s += Indent(cl.desc, "\t")
 		s += "\n"
 		if cl.copied_from:
@@ -291,13 +289,12 @@ class CL(object):
 		if self.name == "new":
 			self.Upload(ui, repo, gofmt_just_warn=True, creating=True)
 		dir = CodeReviewDir(ui, repo)
-		path = dir + '/cl.' + self.name
-		f = open(path+'!', "w")
-		f.write(self.DiskText())
-		f.close()
+		path = f'{dir}/cl.{self.name}'
+		with open(f'{path}!', "w") as f:
+			f.write(self.DiskText())
 		if sys.platform == "win32" and os.path.isfile(path):
 			os.remove(path)
-		os.rename(path+'!', path)
+		os.rename(f'{path}!', path)
 		if self.web and not self.copied_from:
 			EditDesc(self.name, desc=self.desc,
 				reviewers=JoinComma(self.reviewer), cc=JoinComma(self.cc),
@@ -305,14 +302,14 @@ class CL(object):
 
 	def Delete(self, ui, repo):
 		dir = CodeReviewDir(ui, repo)
-		os.unlink(dir + "/cl." + self.name)
+		os.unlink(f'{dir}/cl.{self.name}')
 
 	def Subject(self, ui, repo):
 		s = line1(self.desc)
 		if len(s) > 60:
-			s = s[0:55] + "..."
+			s = s[:55] + "..."
 		if self.name != "new":
-			s = "code review %s: %s" % (self.name, s)
+			s = f"code review {self.name}: {s}"
 		typecheck(s, str)
 		return branch_prefix(ui, repo) + s
 
@@ -354,13 +351,14 @@ class CL(object):
 				uploaded_diff_file = [("data", "data.diff", data)]
 		else:
 			uploaded_diff_file = [("data", "data.diff", emptydiff)]
-		
+
 		if vcs and self.name != "new":
-			form_fields.append(("subject", "diff -r " + vcs.base_rev + " " + ui.expandpath("default")))
+			form_fields.append(("subject",
+			                    f"diff -r {vcs.base_rev} " + ui.expandpath("default")))
 		else:
 			# First upload sets the subject for the CL itself.
 			form_fields.append(("subject", self.Subject(ui, repo)))
-		
+
 		ctype, body = EncodeMultipartFormData(form_fields, uploaded_diff_file)
 		response_body = MySend("/upload", body, content_type=ctype)
 		patchset = None
@@ -372,13 +370,11 @@ class CL(object):
 			patches = [x.split(" ", 1) for x in lines[2:]]
 		else:
 			print >>sys.stderr, "Server says there is nothing to upload (probably wrong):\n" + msg
-		if response_body.startswith("Issue updated.") and quiet:
-			pass
-		else:
+		if not response_body.startswith("Issue updated.") or not quiet:
 			ui.status(msg + "\n")
 		set_status("uploaded CL metadata + diffs")
 		if not response_body.startswith("Issue created.") and not response_body.startswith("Issue updated."):
-			raise hg_util.Abort("failed to update issue: " + response_body)
+			raise hg_util.Abort(f"failed to update issue: {response_body}")
 		issue = msg[msg.rfind("/")+1:]
 		self.name = issue
 		if not self.url:
@@ -390,19 +386,19 @@ class CL(object):
 			set_status("uploading base files")
 			vcs.UploadBaseFiles(issue, rpc, patches, patchset, upload_options, files)
 		if patchset != "1":
-			MySend("/" + issue + "/upload_complete/" + patchset, payload="")
+			MySend(f"/{issue}/upload_complete/{patchset}", payload="")
 		if send_mail:
 			set_status("sending mail")
-			MySend("/" + issue + "/mail", payload="")
+			MySend(f"/{issue}/mail", payload="")
 		self.web = True
 		set_status("flushing changes to disk")
 		self.Flush(ui, repo)
 		return
 
 	def Mail(self, ui, repo):
-		pmsg = "Hello " + JoinComma(self.reviewer)
+		pmsg = f"Hello {JoinComma(self.reviewer)}"
 		if self.cc:
-			pmsg += " (cc: %s)" % (', '.join(self.cc),)
+			pmsg += f" (cc: {', '.join(self.cc)})"
 		pmsg += ",\n"
 		pmsg += "\n"
 		repourl = ui.expandpath("default")
@@ -410,7 +406,7 @@ class CL(object):
 			pmsg += "I'd like you to review this change to"
 			branch = repo[None].branch()
 			if branch.startswith("dev."):
-				pmsg += " the " + branch + " branch of"
+				pmsg += f" the {branch} branch of"
 			pmsg += "\n" + repourl + "\n"
 		else:
 			pmsg += "Please take another look.\n"
@@ -444,7 +440,7 @@ def ParseCL(text, name):
 		if line != '' and line[0] == '#':
 			continue
 		if line == '' or line[0] == ' ' or line[0] == '\t':
-			if sname == None and line != '':
+			if sname is None and line != '':
 				return None, lineno, 'text outside section'
 			if sname != None:
 				sections[sname] += line + '\n'
@@ -469,7 +465,7 @@ def ParseCL(text, name):
 	for line in sections['Files'].split('\n'):
 		i = line.find('#')
 		if i >= 0:
-			line = line[0:i].rstrip()
+			line = line[:i].rstrip()
 		line = line.strip()
 		if line == '':
 			continue
@@ -500,7 +496,7 @@ def CutDomain(s):
 	typecheck(s, str)
 	i = s.find('@')
 	if i >= 0:
-		s = s[0:i]
+		s = s[:i]
 	return s
 
 def JoinComma(l):
@@ -521,49 +517,43 @@ def ExceptionDetail():
 	elif s.startswith("<class '") and s.endswith("'>"):
 		s = s[8:-2]
 	arg = str(sys.exc_info()[1])
-	if len(arg) > 0:
-		s += ": " + arg
+	if arg != '':
+		s += f": {arg}"
 	return s
 
 def IsLocalCL(ui, repo, name):
-	return GoodCLName(name) and os.access(CodeReviewDir(ui, repo) + "/cl." + name, 0)
+	return GoodCLName(name) and os.access(f'{CodeReviewDir(ui, repo)}/cl.{name}',
+	                                      0)
 
 # Load CL from disk and/or the web.
 def LoadCL(ui, repo, name, web=True):
 	typecheck(name, str)
-	set_status("loading CL " + name)
+	set_status(f"loading CL {name}")
 	if not GoodCLName(name):
 		return None, "invalid CL name"
 	dir = CodeReviewDir(ui, repo)
-	path = dir + "cl." + name
+	path = f'{dir}cl.{name}'
 	if os.access(path, 0):
-		ff = open(path)
-		text = ff.read()
-		ff.close()
+		with open(path) as ff:
+			text = ff.read()
 		cl, lineno, err = ParseCL(text, name)
 		if err != "":
-			return None, "malformed CL data: "+err
+			return None, f"malformed CL data: {err}"
 		cl.local = True
 	else:
 		cl = CL(name)
 	if web:
 		set_status("getting issue metadata from web")
-		d = JSONGet(ui, "/api/" + name + "?messages=true")
+		d = JSONGet(ui, f"/api/{name}?messages=true")
 		set_status(None)
 		if d is None:
-			return None, "cannot load CL %s from server" % (name,)
+			return None, f"cannot load CL {name} from server"
 		if 'owner_email' not in d or 'issue' not in d or str(d['issue']) != name:
 			return None, "malformed response loading CL data from code review server"
 		cl.dict = d
 		cl.reviewer = d.get('reviewers', [])
 		cl.cc = d.get('cc', [])
-		if cl.local and cl.copied_from and cl.desc:
-			# local copy of CL written by someone else
-			# and we saved a description.  use that one,
-			# so that committers can edit the description
-			# before doing hg submit.
-			pass
-		else:
+		if not cl.local or not cl.copied_from or not cl.desc:
 			cl.desc = d.get('description', "")
 		cl.url = server_url_base + name
 		cl.web = True
@@ -575,7 +565,7 @@ def LoadCL(ui, repo, name, web=True):
 				text = re.sub("\n(.|\n)*", '', m.get('text', ''))
 				cl.lgtm.append((who, text, m.get('approval', False)))
 
-	set_status("loaded CL " + name)
+	set_status(f"loaded CL {name}")
 	return cl, ''
 
 class LoadCLThread(threading.Thread):
@@ -590,7 +580,7 @@ class LoadCLThread(threading.Thread):
 	def run(self):
 		cl, err = LoadCL(self.ui, self.repo, self.f[3:], web=self.web)
 		if err != '':
-			self.ui.warn("loading "+self.dir+self.f+": " + err + "\n")
+			self.ui.warn(f"loading {self.dir}{self.f}: {err}" + "\n")
 			return
 		self.cl = cl
 
@@ -669,17 +659,17 @@ def StripCommon(text):
 			continue
 		line = TabsToSpaces(line)
 		white = line[:len(line)-len(line.lstrip())]
-		if ws == None:
+		if ws is None:
 			ws = white
 		else:
 			common = ''
 			for i in range(min(len(white), len(ws))+1):
-				if white[0:i] == ws[0:i]:
-					common = white[0:i]
+				if white[:i] == ws[:i]:
+					common = white[:i]
 			ws = common
 		if ws == '':
 			break
-	if ws == None:
+	if ws is None:
 		return text
 	t = ''
 	for line in text.split('\n'):
@@ -699,9 +689,7 @@ def StripCommon(text):
 def Indent(text, indent):
 	typecheck(text, str)
 	typecheck(indent, str)
-	t = ''
-	for line in text.split('\n'):
-		t += indent + line + '\n'
+	t = ''.join(indent + line + '\n' for line in text.split('\n'))
 	typecheck(t, str)
 	return t
 
@@ -738,34 +726,33 @@ Examples:
 
 def promptyesno(ui, msg):
 	if hgversion >= "2.7":
-		return ui.promptchoice(msg + " $$ &yes $$ &no", 0) == 0
+		return ui.promptchoice(f'{msg} $$ &yes $$ &no', 0) == 0
 	else:
 		return ui.promptchoice(msg, ["&yes", "&no"], 0) == 0
 
 def promptremove(ui, repo, f):
-	if promptyesno(ui, "hg remove %s (y/n)?" % (f,)):
-		if hg_commands.remove(ui, repo, 'path:'+f) != 0:
-			ui.warn("error removing %s" % (f,))
+	if (promptyesno(ui, f"hg remove {f} (y/n)?")
+	    and hg_commands.remove(ui, repo, f'path:{f}') != 0):
+		ui.warn(f"error removing {f}")
 
 def promptadd(ui, repo, f):
-	if promptyesno(ui, "hg add %s (y/n)?" % (f,)):
-		if hg_commands.add(ui, repo, 'path:'+f) != 0:
-			ui.warn("error adding %s" % (f,))
+	if (promptyesno(ui, f"hg add {f} (y/n)?")
+	    and hg_commands.add(ui, repo, f'path:{f}') != 0):
+		ui.warn(f"error adding {f}")
 
 def EditCL(ui, repo, cl):
 	set_status(None)	# do not show status
 	s = cl.EditorText()
 	while True:
 		s = ui.edit(s, ui.username())
-		
+
 		# We can't trust Mercurial + Python not to die before making the change,
 		# so, by popular demand, just scribble the most recent CL edit into
 		# $(hg root)/last-change so that if Mercurial does die, people
 		# can look there for their work.
 		try:
-			f = open(repo.root+"/last-change", "w")
-			f.write(s)
-			f.close()
+			with open(f'{repo.root}/last-change', "w") as f:
+				f.write(s)
 		except:
 			pass
 
@@ -774,7 +761,7 @@ def EditCL(ui, repo, cl):
 			if not promptyesno(ui, "error parsing change list: line %d: %s\nre-edit (y/n)?" % (line, err)):
 				return "change list not modified"
 			continue
-		
+
 		# Check description.
 		if clx.desc == '':
 			if promptyesno(ui, "change list should have a description\nre-edit (y/n)?"):
@@ -783,12 +770,12 @@ def EditCL(ui, repo, cl):
 			if promptyesno(ui, "change list description omits reason for undo\nre-edit (y/n)?"):
 				continue
 		elif not re.match(desc_re, clx.desc.split('\n')[0]):
-			if promptyesno(ui, desc_msg + "re-edit (y/n)?"):
+			if promptyesno(ui, f'{desc_msg}re-edit (y/n)?'):
 				continue
 
 		# Check file list for files that need to be hg added or hg removed
 		# or simply aren't understood.
-		pats = ['path:'+f for f in clx.files]
+		pats = [f'path:{f}' for f in clx.files]
 		changed = hg_matchPattern(ui, repo, *pats, modified=True, added=True, removed=True)
 		deleted = hg_matchPattern(ui, repo, *pats, deleted=True)
 		unknown = hg_matchPattern(ui, repo, *pats, unknown=True)
@@ -814,7 +801,7 @@ def EditCL(ui, repo, cl):
 				ui.warn("warning: %s is listed in the CL but unchanged\n" % (f,))
 				files.append(f)
 				continue
-			p = repo.root + '/' + f
+			p = f'{repo.root}/{f}'
 			if os.path.isfile(p):
 				ui.warn("warning: %s is a file but not known to hg\n" % (f,))
 				files.append(f)
@@ -850,7 +837,7 @@ def CommandLineCL(ui, repo, pats, opts, op="verb", defaultcc=None):
 		cl.local = True
 		cl.files = ChangedFiles(ui, repo, pats, taken=Taken(ui, repo))
 		if not cl.files:
-			return None, "no files changed (use hg %s <number> to use existing CL)" % op
+			return None, f"no files changed (use hg {op} <number> to use existing CL)"
 	if opts.get('reviewer'):
 		cl.reviewer = Add(cl.reviewer, SplitCommaSpace(opts.get('reviewer')))
 	if opts.get('cc'):
@@ -928,7 +915,7 @@ def CheckGofmt(ui, repo, files, just_warn):
 	if not files:
 		return
 	cwd = os.getcwd()
-	files = [RelativePath(repo.root + '/' + f, cwd) for f in files]
+	files = [RelativePath(f'{repo.root}/{f}', cwd) for f in files]
 	files = [f for f in files if os.access(f, 0)]
 	if not files:
 		return
@@ -936,7 +923,7 @@ def CheckGofmt(ui, repo, files, just_warn):
 		cmd = subprocess.Popen(["gofmt", "-l"] + files, shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=sys.platform != "win32")
 		cmd.stdin.close()
 	except:
-		raise hg_util.Abort("gofmt: " + ExceptionDetail())
+		raise hg_util.Abort(f"gofmt: {ExceptionDetail()}")
 	data = cmd.stdout.read()
 	errors = cmd.stderr.read()
 	cmd.wait()
@@ -947,7 +934,7 @@ def CheckGofmt(ui, repo, files, just_warn):
 	if len(data) > 0:
 		msg = "gofmt needs to format these files (run hg gofmt):\n" + Indent(data, "\t").rstrip()
 		if just_warn:
-			ui.warn("warning: " + msg + "\n")
+			ui.warn(f"warning: {msg}" + "\n")
 		else:
 			raise hg_util.Abort(msg)
 	return
@@ -958,7 +945,7 @@ def CheckTabfmt(ui, repo, files, just_warn):
 	if not files:
 		return
 	cwd = os.getcwd()
-	files = [RelativePath(repo.root + '/' + f, cwd) for f in files]
+	files = [RelativePath(f'{repo.root}/{f}', cwd) for f in files]
 	files = [f for f in files if os.access(f, 0)]
 	badfiles = []
 	for f in files:
@@ -973,10 +960,10 @@ def CheckTabfmt(ui, repo, files, just_warn):
 		except:
 			# ignore cannot open file, etc.
 			pass
-	if len(badfiles) > 0:
+	if badfiles:
 		msg = "these files use spaces for indentation (use tabs instead):\n\t" + "\n\t".join(badfiles)
 		if just_warn:
-			ui.warn("warning: " + msg + "\n")
+			ui.warn(f"warning: {msg}" + "\n")
 		else:
 			raise hg_util.Abort(msg)
 	return
@@ -997,8 +984,8 @@ def ReadContributors(ui, repo):
 			opening = contributorsURL
 			f = urllib2.urlopen(contributorsURL)
 		else:
-			opening = repo.root + '/CONTRIBUTORS'
-			f = open(repo.root + '/CONTRIBUTORS', 'r')
+			opening = f'{repo.root}/CONTRIBUTORS'
+			f = open(f'{repo.root}/CONTRIBUTORS', 'r')
 	except:
 		ui.write("warning: cannot open %s: %s\n" % (opening, ExceptionDetail()))
 		return {}
@@ -1011,12 +998,11 @@ def ReadContributors(ui, repo):
 		# The first email address is the one used in commit logs.
 		if line.startswith('#'):
 			continue
-		m = re.match(r"([^<>]+\S)\s+(<[^<>\s]+>)((\s+<[^<>\s]+>)*)\s*$", line)
-		if m:
-			name = m.group(1)
-			email = m.group(2)[1:-1]
+		if m := re.match(r"([^<>]+\S)\s+(<[^<>\s]+>)((\s+<[^<>\s]+>)*)\s*$", line):
+			name = m[1]
+			email = m[2][1:-1]
 			contributors[email.lower()] = (name, email)
-			for extra in m.group(3).split():
+			for extra in m[3].split():
 				contributors[extra[1:-1].lower()] = (name, email)
 
 	contributorsCache = contributors
@@ -1026,27 +1012,26 @@ def CheckContributor(ui, repo, user=None):
 	set_status("checking CONTRIBUTORS file")
 	user, userline = FindContributor(ui, repo, user, warn=False)
 	if not userline:
-		raise hg_util.Abort("cannot find %s in CONTRIBUTORS" % (user,))
+		raise hg_util.Abort(f"cannot find {user} in CONTRIBUTORS")
 	return userline
 
 def FindContributor(ui, repo, user=None, warn=True):
 	if not user:
 		user = ui.config("ui", "username")
-		if not user:
-			raise hg_util.Abort("[ui] username is not configured in .hgrc")
+	if not user:
+		raise hg_util.Abort("[ui] username is not configured in .hgrc")
 	user = user.lower()
-	m = re.match(r".*<(.*)>", user)
-	if m:
-		user = m.group(1)
+	if m := re.match(r".*<(.*)>", user):
+		user = m[1]
 
 	contributors = ReadContributors(ui, repo)
 	if user not in contributors:
 		if warn:
 			ui.warn("warning: cannot find %s in CONTRIBUTORS\n" % (user,))
 		return user, None
-	
+
 	user, email = contributors[user]
-	return email, "%s <%s>" % (user, email)
+	return email, f"{user} <{email}>"
 
 #######################################################################
 # Mercurial helper functions.
@@ -1105,16 +1090,14 @@ class uiwrap(object):
 		return ui.popbuffer()
 
 def to_slash(path):
-	if sys.platform == "win32":
-		return path.replace('\\', '/')
-	return path
+	return path.replace('\\', '/') if sys.platform == "win32" else path
 
 def hg_matchPattern(ui, repo, *pats, **opts):
 	w = uiwrap(ui)
 	hg_commands.status(ui, repo, *pats, **opts)
 	text = w.output()
 	ret = []
-	prefix = to_slash(os.path.realpath(repo.root))+'/'
+	prefix = f'{to_slash(os.path.realpath(repo.root))}/'
 	for line in text.split('\n'):
 		f = line.split()
 		if len(f) > 1:
@@ -1148,10 +1131,7 @@ noise = [
 
 def isNoise(line):
 	line = str(line)
-	for x in noise:
-		if line == x:
-			return True
-	return False
+	return any(line == x for x in noise)
 
 def hg_incoming(ui, repo):
 	w = uiwrap(ui)
@@ -1165,8 +1145,7 @@ def hg_log(ui, repo, **opts):
 		if not opts.has_key(k):
 			opts[k] = ""
 	w = uiwrap(ui)
-	ret = hg_commands.log(ui, repo, **opts)
-	if ret:
+	if ret := hg_commands.log(ui, repo, **opts):
 		raise hg_util.Abort(ret)
 	return w.output()
 
@@ -1269,7 +1248,7 @@ def MatchAt(ctx, pats=None, opts=None, globbed=False, default='relpath'):
 	files = []
 	pats = pats or []
 	opts = opts or {}
-	
+
 	for p in pats:
 		if p.startswith('@'):
 			taken.append(p)
@@ -1278,14 +1257,14 @@ def MatchAt(ctx, pats=None, opts=None, globbed=False, default='relpath'):
 				files = DefaultFiles(match_ui, match_repo, [])
 			else:
 				if not GoodCLName(clname):
-					raise hg_util.Abort("invalid CL name " + clname)
+					raise hg_util.Abort(f"invalid CL name {clname}")
 				cl, err = LoadCL(match_repo.ui, match_repo, clname, web=False)
 				if err != '':
-					raise hg_util.Abort("loading CL " + clname + ": " + err)
+					raise hg_util.Abort(f"loading CL {clname}: {err}")
 				if not cl.files:
-					raise hg_util.Abort("no files in CL " + clname)
+					raise hg_util.Abort(f"no files in CL {clname}")
 				files = Add(files, cl.files)
-	pats = Sub(pats, taken) + ['path:'+f for f in files]
+	pats = Sub(pats, taken) + [f'path:{f}' for f in files]
 
 	# work-around for http://selenic.com/hg/rev/785bbc8634f8
 	if not hasattr(ctx, 'match'):

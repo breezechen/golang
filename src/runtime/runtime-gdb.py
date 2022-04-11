@@ -194,11 +194,11 @@ def lookup_type(name):
 	except gdb.error:
 		pass
 	try:
-		return gdb.lookup_type('struct ' + name)
+		return gdb.lookup_type(f'struct {name}')
 	except gdb.error:
 		pass
 	try:
-		return gdb.lookup_type('struct ' + name[1:]).pointer()
+		return gdb.lookup_type(f'struct {name[1:]}').pointer()
 	except gdb.error:
 		pass
 
@@ -449,11 +449,7 @@ class GoIfaceCmd(gdb.Command):
 				print("Can't parse ", obj, ": ", e)
 				continue
 
-			if obj['data'] == 0:
-				dtype = "nil"
-			else:
-				dtype = iface_dtype(obj)
-
+			dtype = "nil" if obj['data'] == 0 else iface_dtype(obj)
 			if dtype is None:
 				print("Not an interface: ", obj.type)
 				continue
